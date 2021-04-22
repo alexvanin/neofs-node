@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 
+	"github.com/nspcc-dev/neo-go/pkg/util"
 	"github.com/nspcc-dev/neofs-api-go/pkg"
 	acl "github.com/nspcc-dev/neofs-api-go/pkg/acl/eacl"
 	"github.com/nspcc-dev/neofs-api-go/pkg/container"
@@ -24,6 +25,10 @@ type (
 		InnerRingKeys() ([][]byte, error)
 	}
 
+	NFTFetcher interface {
+		Owner(util.Uint160, []byte) (*owner.ID, error)
+	}
+
 	metaWithToken struct {
 		vheader *session.RequestVerificationHeader
 		token   *session.SessionToken
@@ -34,15 +39,21 @@ type (
 	SenderClassifier struct {
 		log       *zap.Logger
 		innerRing InnerRingFetcher
+		nft       NFTFetcher
 		netmap    core.Source
 	}
 )
 
-// fixme: update classifier constructor
-func NewSenderClassifier(l *zap.Logger, ir InnerRingFetcher, nm core.Source) SenderClassifier {
+const (
+	NFTContractAttribute = "NFT-Contract"
+	NFTIDAttribute       = "NFT-ID"
+)
+
+func NewSenderClassifier(l *zap.Logger, ir InnerRingFetcher, nft NFTFetcher, nm core.Source) SenderClassifier {
 	return SenderClassifier{
 		log:       l,
 		innerRing: ir,
+		nft:       nft,
 		netmap:    nm,
 	}
 }
@@ -65,7 +76,12 @@ func (c SenderClassifier) Classify(
 	// todo: get owner from neofs.id if present
 
 	// if request owner is the same as container owner, return RoleUser
-	if bytes.Equal(cnr.OwnerID().ToV2().GetValue(), ownerID.ToV2().GetValue()) {
+	isContainerOwner, err := c.isContainerOwner(cnr, ownerID)
+	if err != nil {
+		// do not throw error, try best case matching
+		c.log.Debug("can't check if request from container owner",
+			zap.String("error", err.Error()))
+	} else if isContainerOwner {
 		return acl.RoleUser, false, ownerKeyInBytes, nil
 	}
 
@@ -133,6 +149,20 @@ func originalBodySignature(v *session.RequestVerificationHeader) *pkg.Signature 
 	}
 
 	return pkg.NewSignatureFromV2(v.GetBodySignature())
+}
+
+func (c SenderClassifier) isContainerOwner(cnr *container.Container, req *owner.ID) (ok bool, err error) {
+	cnrOwner := cnr.OwnerID()
+
+	contract, tokenID, ok := nftAttributes(cnr.Attributes())
+	if ok {
+		cnrOwner, err = c.nft.Owner(contract, tokenID)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return bytes.Equal(cnrOwner.ToV2().GetValue(), req.ToV2().GetValue()), nil
 }
 
 func (c SenderClassifier) isInnerRingKey(owner []byte) (bool, error) {
@@ -215,4 +245,26 @@ func ownerFromToken(token *session.SessionToken) (*owner.ID, *ecdsa.PublicKey, e
 	}
 
 	return tokenOwner, tokenIssuerKey, nil
+}
+
+func nftAttributes(attributes container.Attributes) (contract util.Uint160, tokenID []byte, ok bool) {
+	for i := range attributes {
+		switch attributes[i].Key() {
+		case NFTIDAttribute:
+			tokenID = []byte(attributes[i].Value())
+		case NFTContractAttribute:
+			var err error
+			contract, err = util.Uint160DecodeStringLE(attributes[i].Value())
+			if err != nil {
+				ok = false
+				return
+			}
+		default:
+			continue
+		}
+	}
+	// both contract address and token id must be present in attributes
+	ok = !contract.Equals(util.Uint160{}) && len(tokenID) != 0
+
+	return
 }
