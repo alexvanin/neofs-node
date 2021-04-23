@@ -17,6 +17,7 @@ import (
 	"github.com/nspcc-dev/neofs-node/pkg/local_object_storage/engine"
 	morphClient "github.com/nspcc-dev/neofs-node/pkg/morph/client"
 	"github.com/nspcc-dev/neofs-node/pkg/morph/client/container/wrapper"
+	"github.com/nspcc-dev/neofs-node/pkg/morph/client/nft"
 	"github.com/nspcc-dev/neofs-node/pkg/morph/event"
 	"github.com/nspcc-dev/neofs-node/pkg/network"
 	"github.com/nspcc-dev/neofs-node/pkg/network/cache"
@@ -362,6 +363,7 @@ func initObjectService(c *cfg) {
 			acl.NewSenderClassifier(
 				c.log,
 				irFetcher,
+				nftFetcher(c),
 				c.cfgNetmap.wrapper,
 			),
 		),
@@ -547,4 +549,12 @@ func (c *reputationClientConstructor) Get(addr string) (client.Client, error) {
 	}
 
 	return cl, nil
+}
+
+func nftFetcher(c *cfg) *nft.Fetcher {
+	if c.cfgMainchain.client == nil {
+		initMainchainComponents(c)
+	}
+
+	return nft.NewFetcher(c.cfgMainchain.client)
 }

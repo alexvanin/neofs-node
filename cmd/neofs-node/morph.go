@@ -158,3 +158,33 @@ func registerNotificationHandlers(scHash util.Uint160, lis event.Listener, parse
 func registerBlockHandler(lis event.Listener, handler event.BlockHandler) {
 	lis.RegisterBlockHandler(handler)
 }
+
+func initMainchainComponents(c *cfg) {
+	var err error
+
+	addresses := c.viper.GetStringSlice(cfgMainchainRPCAddress)
+	if len(addresses) == 0 {
+		fatalOnErr(errNoRPCEndpoints)
+	}
+
+	crand := rand.New() // math/rand with cryptographic source
+	crand.Shuffle(len(addresses), func(i, j int) {
+		addresses[i], addresses[j] = addresses[j], addresses[i]
+	})
+
+	for i := range addresses {
+		c.cfgMainchain.client, err = client.New(c.key, addresses[i])
+		if err == nil {
+			c.log.Info("neo RPC connection established",
+				zap.String("endpoint", addresses[i]))
+
+			break
+		}
+
+		c.log.Info("failed to establish neo RPC connection, trying another",
+			zap.String("endpoint", addresses[i]),
+			zap.String("error", err.Error()))
+	}
+
+	fatalOnErr(err)
+}

@@ -80,6 +80,9 @@ const (
 	// config keys for cfgMorph
 	cfgMorphRPCAddress = "morph.rpc_endpoint"
 
+	// config keys for cfgMainchain
+	cfgMainchainRPCAddress = "mainchain.rpc_endpoint"
+
 	cfgMorphNotifyRPCAddress  = "morph.notification_endpoint"
 	cfgMorphNotifyDialTimeout = "morph.dial_timeout"
 
@@ -176,6 +179,8 @@ type cfg struct {
 
 	cfgGRPC cfgGRPC
 
+	cfgMainchain cfgMainchain
+
 	cfgMorph cfgMorph
 
 	cfgAccounting cfgAccounting
@@ -230,6 +235,10 @@ type cfgMorph struct {
 
 	blockTimers     []*timer.BlockTimer // all combined timers
 	eigenTrustTimer *timer.BlockTimer   // timer for EigenTrust iterations
+}
+
+type cfgMainchain struct {
+	client *client.Client
 }
 
 type cfgAccounting struct {
@@ -438,6 +447,8 @@ func defaultConfiguration(v *viper.Viper) {
 	v.SetDefault(cfgMorphRPCAddress, []string{})
 	v.SetDefault(cfgMorphNotifyRPCAddress, []string{})
 	v.SetDefault(cfgMorphNotifyDialTimeout, 5*time.Second)
+
+	v.SetDefault(cfgMainchainRPCAddress, []string{})
 
 	v.SetDefault(cfgListenAddress, "127.0.0.1:50501") // listen address
 	v.SetDefault(cfgMaxMsgSize, 4<<20)                // transport msg limit 4 MiB
